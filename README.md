@@ -1,36 +1,157 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PasteLite - Ephemeral Text & Code Sharing
 
-## Getting Started
+A modern, fast, full-stack Pastebin application built with Next.js (App Router), TypeScript, Tailwind CSS, and Prisma ORM with PostgreSQL (optimized for Neon and Vercel).
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## ✨ Features
+
+- **Lite GitHub Gist / Pastebin Aesthetic**: Clean dark UI with monospace code editor, line numbering, character/word counting, and line-wrapping toggles.
+- **Short, Shareable URLs**: Compact, collision-resistant 8-character NanoIDs (e.g. `/p/7xK9qLm2`).
+- **Flexible Expiration**:
+  - Time-based expiration (e.g., 10 minutes, 1 hour, 1 day, 7 days, or custom timestamp).
+  - View-count expiration / Burn-after-reading (e.g., 1 view, 5 views, 10 views, or custom count).
+- **Atomic Concurrency**: View counts increment safely on every successful access, instantly triggering HTTP 410 Gone once limits are surpassed.
+- **Zod Validation**: Robust input parsing and error reporting on API route handlers.
+- **One-Click Vercel Deployment**: Pre-configured build hooks (`prisma generate`) and compatibility with serverless PostgreSQL (Neon, Vercel Postgres, Supabase).
+
+---
+
+## 🗄️ Database Schema
+
+The application uses Prisma with a PostgreSQL database:
+
+```prisma
+model Paste {
+  id           String    @id
+  content      String    @db.Text
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime?
+  maxViews     Int?
+  currentViews Int       @default(0)
+
+  @@index([createdAt])
+  @@index([expiresAt])
+}
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🔌 API Documentation
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 1. Create a Paste
+**`POST /api/pastes`**
 
-## Learn More
+Creates a new paste with optional expiration settings.
 
-To learn more about Next.js, take a look at the following resources:
+#### Request Body (JSON)
+```json
+{
+  "content": "const message = 'Hello, World!';",
+  "expiresAt": "2026-10-23T12:00:00.000Z", // Optional ISO 8601 string or null
+  "maxViews": 5 // Optional integer >= 1 or null
+}
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+#### Response (201 Created)
+```json
+{
+  "id": "3mK8vP9x",
+  "url": "http://localhost:3000/p/3mK8vP9x",
+  "createdAt": "2026-10-23T11:20:00.000Z",
+  "expiresAt": "2026-10-23T12:00:00.000Z",
+  "maxViews": 5,
+  "currentViews": 0
+}
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+### 2. Retrieve a Paste
+**`GET /api/pastes/[id]`**
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Fetches paste content, verifies expiration, and increments `currentViews`.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+#### Response (200 OK)
+```json
+{
+  "id": "3mK8vP9x",
+  "content": "const message = 'Hello, World!';",
+  "createdAt": "2026-10-23T11:20:00.000Z",
+  "expiresAt": "2026-10-23T12:00:00.000Z",
+  "maxViews": 5,
+  "currentViews": 1,
+  "remainingViews": 4
+}
+```
+
+#### Response (410 Gone - Expired or View Limit Exceeded)
+```json
+{
+  "error": "This paste has reached its maximum view limit",
+  "reason": "max_views_reached",
+  "maxViews": 5,
+  "currentViews": 5
+}
+```
+
+---
+
+## 🚀 Getting Started
+
+### 1. Clone & Install
+```bash
+npm install
+```
+
+### 2. Configure Environment Variables
+Copy `.env.example` to `.env`:
+```bash
+cp .env.example .env
+```
+
+Set your `DATABASE_URL` (local PostgreSQL, Neon, Supabase, etc.):
+```env
+DATABASE_URL="postgresql://username:password@localhost:5432/pastebin?schema=public"
+```
+
+### 3. Sync Database Schema
+Push the Prisma schema to your database:
+```bash
+npx prisma db push
+```
+
+### 4. Run Development Server
+```bash
+npm run dev
+```
+
+Visit [http://localhost:3000](http://localhost:3000) in your browser.
+
+---
+
+## 🧪 Automated Smoke Testing
+
+Execute the automated test suite verifying all 4 production scenarios against the live database:
+
+```bash
+npx ts-node tests/smoke-test.ts
+# or
+npm run test:smoke
+```
+
+The test runner validates:
+1. **Standard Paste:** Creates a paste, fetches it, verifies content matches, and checks `currentViews = 1`.
+2. **Time Expiration:** Tests past `expiresAt`, asserts **HTTP 410** and `reason: "expired_by_time"`.
+3. **View Expiration:** Creates paste with `maxViews: 1`, verifies 1st fetch succeeds (200), and 2nd fetch returns **HTTP 410** with `reason: "max_views_reached"`.
+4. **Not Found:** Queries non-existent UUID, asserts **HTTP 404**.
+
+---
+
+## ☁️ Deployment on Vercel
+
+1. Push your repository to GitHub / GitLab.
+2. Import the project into [Vercel](https://vercel.com).
+3. Under **Environment Variables**, add:
+   - `DATABASE_URL`: Connection string from [Neon](https://neon.tech) or Vercel Postgres.
+4. Deploy! Vercel automatically runs `prisma generate && next build` via the pre-configured `build` script.

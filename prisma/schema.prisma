@@ -1,0 +1,23 @@
+// Prisma schema file for Pastebin application
+// Optimized for PostgreSQL (Neon, Vercel Postgres, Supabase, or standard PostgreSQL)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Paste {
+  id           String    @id
+  content      String    @db.Text
+  createdAt    DateTime  @default(now())
+  expiresAt    DateTime?
+  maxViews     Int?
+  currentViews Int       @default(0)
+
+  @@index([createdAt])
+  @@index([expiresAt])
+}
